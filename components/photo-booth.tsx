@@ -1,26 +1,15 @@
 "use client";
 
-import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ChangeEvent, PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
 import { ArrowIcon, BrandMark, CameraIcon, CheckIcon, CopyIcon, SparkIcon } from "./brand-mark";
 import QRCodeImage from "./qr-code";
+import type { PortraitJobStatus, PublicPortraitJob } from "@/lib/portrait-job";
 import { getTheme, themes, type ThemeId } from "@/lib/themes";
 
 type BoothStep = "welcome" | "choose" | "consent" | "camera" | "review" | "processing";
 type CameraState = "idle" | "starting" | "ready" | "blocked";
-type JobStatus = "queued" | "generating" | "processing" | "completed";
 
-type DemoJob = {
-  token: string;
-  managementToken?: string;
-  theme: ThemeId;
-  themeName: string;
-  status: JobStatus;
-  resultUrl: string | null;
-  createdAt: number;
-  expiresAt: number;
-};
-
-const statusCopy: Record<JobStatus, { title: string; detail: string }> = {
+const statusCopy: Record<PortraitJobStatus, { title: string; detail: string }> = {
   queued: {
     title: "Your portrait is in the queue.",
     detail: "Your collection link is ready now. The portrait will appear there automatically.",
@@ -37,6 +26,10 @@ const statusCopy: Record<JobStatus, { title: string; detail: string }> = {
     title: "Your alter ego is ready.",
     detail: "Open the private link on your phone to download your portrait.",
   },
+  failed: {
+    title: "This portrait needs another try.",
+    detail: "Your original photo is still available in this session, so you can retry safely.",
+  },
 };
 
 function wait(milliseconds: number) {
@@ -45,7 +38,7 @@ function wait(milliseconds: number) {
 
 export default function PhotoBooth() {
   const [step, setStep] = useState<BoothStep>("welcome");
-  const [themeId, setThemeId] = useState<ThemeId>("cyberpunk");
+  const [themeId, setThemeId] = useState<ThemeId>("liwa-drift");
   const [consented, setConsented] = useState(false);
   const [cameraState, setCameraState] = useState<CameraState>("idle");
   const [cameraMessage, setCameraMessage] = useState("");
@@ -54,9 +47,10 @@ export default function PhotoBooth() {
   const [countdown, setCountdown] = useState<number | null>(null);
   const [captureCue, setCaptureCue] = useState(false);
   const [portrait, setPortrait] = useState("");
-  const [job, setJob] = useState<DemoJob | null>(null);
+  const [job, setJob] = useState<PublicPortraitJob | null>(null);
   const [origin, setOrigin] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [generationBlocked, setGenerationBlocked] = useState(false);
   const [handoffConfirmed, setHandoffConfirmed] = useState(false);
   const [copied, setCopied] = useState(false);
   const [email, setEmail] = useState("");
@@ -67,12 +61,18 @@ export default function PhotoBooth() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
+  const playgroundRef = useRef<HTMLButtonElement>(null);
   const submissionKey = useRef(crypto.randomUUID());
 
   const theme = getTheme(themeId);
   const ready = job?.status === "completed" && Boolean(job.resultUrl);
   const managementFragment = job?.managementToken ? `#manage=${job.managementToken}` : "";
   const portraitUrl = job && origin ? `${origin}/p/${job.token}${managementFragment}` : "";
+  const themeStyle = {
+    "--theme-accent": theme.accent,
+    "--theme-glow": theme.glow,
+    "--theme-backdrop": theme.backdrop,
+  } as React.CSSProperties;
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -83,7 +83,7 @@ export default function PhotoBooth() {
   const resetBooth = useCallback(() => {
     stopCamera();
     setStep("welcome");
-    setThemeId("cyberpunk");
+    setThemeId("liwa-drift");
     setConsented(false);
     setCameraState("idle");
     setCameraMessage("");
@@ -93,6 +93,7 @@ export default function PhotoBooth() {
     setPortrait("");
     setJob(null);
     setSubmitting(false);
+    setGenerationBlocked(false);
     setHandoffConfirmed(false);
     setCopied(false);
     setEmail("");
@@ -115,10 +116,10 @@ export default function PhotoBooth() {
   }, [step, stopCamera]);
 
   useEffect(() => {
-    if (step !== "processing" || !job || job.status === "completed") return;
+    if (step !== "processing" || !job || job.status === "completed" || job.status === "failed") return;
     const load = async () => {
       const response = await fetch(`/api/jobs?token=${encodeURIComponent(job.token)}`, { cache: "no-store" });
-      if (response.ok) setJob((await response.json()) as DemoJob);
+      if (response.ok) setJob((await response.json()) as PublicPortraitJob);
     };
     const timer = window.setInterval(() => void load(), 1400);
     return () => window.clearInterval(timer);
@@ -223,8 +224,12 @@ export default function PhotoBooth() {
   function choosePhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setCameraMessage("Choose a JPEG, PNG, or another image file.");
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setCameraMessage("Choose a JPEG, PNG, or WebP photo.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setCameraMessage("Choose a photo under 10 MB.");
       return;
     }
     const reader = new FileReader();
@@ -244,6 +249,32 @@ export default function PhotoBooth() {
     else setStep("consent");
   }
 
+  function movePlayground(event: ReactPointerEvent<HTMLButtonElement>) {
+    const node = playgroundRef.current;
+    if (!node) return;
+    const bounds = node.getBoundingClientRect();
+    const horizontal = (event.clientX - bounds.left) / bounds.width - 0.5;
+    const vertical = (event.clientY - bounds.top) / bounds.height - 0.5;
+    node.style.setProperty("--play-x", `${horizontal * 18}deg`);
+    node.style.setProperty("--play-y", `${vertical * -14}deg`);
+    node.style.setProperty("--shine-x", `${(horizontal + 0.5) * 100}%`);
+    node.style.setProperty("--shine-y", `${(vertical + 0.5) * 100}%`);
+  }
+
+  function resetPlayground() {
+    const node = playgroundRef.current;
+    if (!node) return;
+    node.style.setProperty("--play-x", "0deg");
+    node.style.setProperty("--play-y", "0deg");
+    node.style.setProperty("--shine-x", "50%");
+    node.style.setProperty("--shine-y", "45%");
+  }
+
+  function remixTheme() {
+    const currentIndex = themes.findIndex((item) => item.id === themeId);
+    setThemeId(themes[(currentIndex + 1) % themes.length].id);
+  }
+
   function retake() {
     stopCamera();
     setPortrait("");
@@ -257,19 +288,50 @@ export default function PhotoBooth() {
     setSubmitting(true);
     setCameraMessage("");
     try {
+      const photo = await fetch(portrait).then((response) => response.blob());
+      const formData = new FormData();
+      formData.set("theme", themeId);
+      formData.set("submissionKey", submissionKey.current);
+      formData.set("photo", photo, `portrait.${photo.type === "image/png" ? "png" : photo.type === "image/webp" ? "webp" : "jpg"}`);
       const response = await fetch("/api/jobs", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ theme: themeId, submissionKey: submissionKey.current }),
+        body: formData,
       });
-      if (!response.ok) throw new Error("Your photo couldn’t upload. Please try again.");
-      setJob((await response.json()) as DemoJob);
+      const body = (await response.json().catch(() => ({}))) as Partial<PublicPortraitJob> & { error?: string };
+      if (!response.ok) {
+        if (body.retryable === false) setGenerationBlocked(true);
+        throw new Error(body.error || "Your photo couldn’t upload. Please try again.");
+      }
+      setJob(body as PublicPortraitJob);
       setStep("processing");
     } catch (error) {
       setCameraMessage(error instanceof Error ? error.message : "Your photo couldn’t upload. Please try again.");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function retryPortrait() {
+    if (job?.managementToken) {
+      await fetch(`/api/jobs?token=${encodeURIComponent(job.token)}`, {
+        method: "DELETE",
+        headers: { "x-management-token": job.managementToken },
+      }).catch(() => undefined);
+    }
+    submissionKey.current = crypto.randomUUID();
+    setJob(null);
+    setCameraMessage("");
+    setStep("review");
+  }
+
+  async function discardFailedPortrait() {
+    if (job?.managementToken) {
+      await fetch(`/api/jobs?token=${encodeURIComponent(job.token)}`, {
+        method: "DELETE",
+        headers: { "x-management-token": job.managementToken },
+      }).catch(() => undefined);
+    }
+    resetBooth();
   }
 
   async function copyLink() {
@@ -336,34 +398,93 @@ export default function PhotoBooth() {
 
   if (step === "welcome") {
     return (
-      <main className="booth-shell theme-cyberpunk">
-        {header("Interactive demo")}
-        <section className="welcome-layout">
-          <div className="welcome-copy">
-            <p className="organization-label">Khalifa University · AI Club</p>
-            <h1 ref={titleRef} tabIndex={-1}>Pick your universe.</h1>
-            <p>One photo. A different version of you.</p>
-            <button className="primary-button" type="button" onClick={() => setStep("choose")}>Create my alter ego <ArrowIcon /></button>
-            <small>The camera is off until you choose to open it.</small>
+      <main className={`booth-shell landing-shell theme-${theme.id}`} style={themeStyle}>
+        <header className="landing-header">
+          <button className="brand-button" type="button" onClick={resetBooth} aria-label="Return to welcome"><BrandMark /></button>
+          <div className="landing-live"><i /> <span>Live experience</span><strong>KU AI Club</strong></div>
+        </header>
+
+        <section className="landing-hero">
+          <div className="landing-copy">
+            <p className="landing-intro">Born in the UAE. Powered by your face.</p>
+            <h1 ref={titleRef} tabIndex={-1}>Your other self is already here.</h1>
+            <p className="landing-deck">Move the world. Pick a local signal. Step through with one photo.</p>
+            <div className="landing-actions">
+              <button className="landing-cta" type="button" onClick={() => setStep("consent")}>
+                Become {theme.name} <ArrowIcon />
+              </button>
+              <span>The camera stays off until you say go.</span>
+            </div>
+            <div className="landing-selected" aria-live="polite">
+              <span style={{ background: theme.accent }} />
+              <div><strong>{theme.shortName}</strong><p>{theme.description}</p></div>
+            </div>
           </div>
-          <div className="example-portraits" aria-label="Example AI portraits">
-            {themes.map((item) => (
-              <figure key={item.id} className={`example-card example-card--${item.id}`}>
+
+          <button
+            className="world-playground"
+            type="button"
+            ref={playgroundRef}
+            onPointerMove={movePlayground}
+            onPointerLeave={resetPlayground}
+            onClick={remixTheme}
+            aria-label={`Play with ${theme.name}. Click to switch to the next world.`}
+          >
+            <span className="world-halo world-halo--outer" aria-hidden="true" />
+            <span className="world-halo world-halo--inner" aria-hidden="true" />
+            <span className="world-coordinate world-coordinate--one" aria-hidden="true">24.4° N</span>
+            <span className="world-coordinate world-coordinate--two" aria-hidden="true">54.4° E</span>
+            <span className="world-stack" aria-hidden="true">
+              <span className="world-slab world-slab--back" />
+              <span className="world-slab world-slab--middle" />
+              <span className="world-portrait">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={item.image} alt={`${item.name} example portrait`} />
-                <figcaption><span>Example</span><strong>{item.name}</strong></figcaption>
-              </figure>
-            ))}
+                <img key={theme.id} src={theme.image} alt="" />
+                <span className="world-shine" />
+              </span>
+              <span className="world-chip"><i /> {theme.name}</span>
+            </span>
+            <span className="world-play-hint">Move me. Click to remix.</span>
+          </button>
+        </section>
+
+        <section className="theme-dock" aria-labelledby="theme-dock-title">
+          <div className="theme-dock-heading">
+            <strong id="theme-dock-title">Six local signals.</strong>
+            <span>Pick your frequency.</span>
+          </div>
+          <div className="theme-reel" role="radiogroup" aria-label="Choose an alter ego theme">
+            {themes.map((item) => {
+              const selected = item.id === themeId;
+              return (
+                <button
+                  className={`theme-reel-item ${selected ? "is-selected" : ""}`}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  key={item.id}
+                  onClick={() => setThemeId(item.id)}
+                  style={{ "--reel-accent": item.accent } as React.CSSProperties}
+                >
+                  <span className="theme-reel-thumb">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={item.image} alt="" />
+                  </span>
+                  <span><strong>{item.name}</strong><small>{item.shortName}</small></span>
+                </button>
+              );
+            })}
           </div>
         </section>
-        <footer className="booth-footer"><span>KU Alter Ego</span><span>Private by default</span></footer>
+
+        <footer className="landing-footer"><span>KU Alter Ego</span><span>Made for play. Private by default.</span></footer>
       </main>
     );
   }
 
   if (step === "choose") {
     return (
-      <main className={`booth-shell theme-${theme.id}`}>
+      <main className={`booth-shell theme-${theme.id}`} style={themeStyle}>
         {header("Step 1 of 5", true)}
         <section className="screen-stack theme-screen">
           <div className="screen-heading">
@@ -397,7 +518,7 @@ export default function PhotoBooth() {
 
   if (step === "consent") {
     return (
-      <main className={`booth-shell theme-${theme.id}`}>
+      <main className={`booth-shell theme-${theme.id}`} style={themeStyle}>
         {header("Step 2 of 5", true)}
         <section className="two-column-screen consent-screen">
           <div className="selected-preview">
@@ -407,16 +528,16 @@ export default function PhotoBooth() {
           </div>
           <div className="instruction-panel">
             <p className="section-kicker">Before the camera opens</p>
-            <h1 ref={titleRef} tabIndex={-1}>Your photo stays in your session.</h1>
-            <p>This interactive demo uses your photo only in this browser session. It does not upload the photo or send it to an AI provider.</p>
+            <h1 ref={titleRef} tabIndex={-1}>Your photo is used only for this portrait.</h1>
+            <p>Your photo is uploaded to this local server, then sent securely to Gemini to create the theme you selected.</p>
             <details className="privacy-details">
-              <summary>Read the demo privacy notice</summary>
-              <div><p>Your captured photo remains in temporary browser memory and is cleared when you choose Next person or the kiosk resets.</p><p>The local demo server stores only a random result token, selected theme, and creation time. Production provider and retention wording must replace this notice before event use.</p></div>
+              <summary>Read the photo privacy notice</summary>
+              <div><p>The local server privately stores the source photo, generated portrait, selected theme, and random access tokens for up to seven days.</p><p>Choosing Delete my portrait removes the local files immediately. Gemini processing remains subject to the data terms configured for the connected Google account.</p></div>
             </details>
             <label className="consent-check">
               <input type="checkbox" checked={consented} onChange={(event) => setConsented(event.target.checked)} />
               <span><CheckIcon /></span>
-              <strong>I agree to use my photo in this demo experience.</strong>
+              <strong>I agree to upload my photo and use Gemini to generate this portrait.</strong>
             </label>
             <button className="primary-button" type="button" disabled={!consented} onClick={() => setStep("camera")}>Continue to camera <ArrowIcon /></button>
           </div>
@@ -427,7 +548,7 @@ export default function PhotoBooth() {
 
   if (step === "camera") {
     return (
-      <main className={`booth-shell theme-${theme.id}`}>
+      <main className={`booth-shell theme-${theme.id}`} style={themeStyle}>
         {header("Step 3 of 5", true)}
         <section className="two-column-screen camera-screen">
           <div>{cameraStage()}</div>
@@ -445,7 +566,7 @@ export default function PhotoBooth() {
               ) : (
                 <button className="primary-button" type="button" onClick={() => void openCamera()} disabled={cameraState === "starting"}><CameraIcon /> {cameraState === "starting" ? "Opening camera…" : "Open camera"}</button>
               )}
-              <label className="secondary-button file-button">Choose a photo<input type="file" accept="image/*" capture="user" onChange={choosePhoto} /></label>
+              <label className="secondary-button file-button">Choose a photo<input type="file" accept="image/jpeg,image/png,image/webp" capture="user" onChange={choosePhoto} /></label>
               {cameraState === "blocked" && <span className="help-note">A volunteer can help if the camera remains unavailable.</span>}
             </div>
           </div>
@@ -456,7 +577,7 @@ export default function PhotoBooth() {
 
   if (step === "review") {
     return (
-      <main className={`booth-shell theme-${theme.id}`}>
+      <main className={`booth-shell theme-${theme.id}`} style={themeStyle}>
         {header("Step 4 of 5")}
         <section className="two-column-screen review-screen">
           <div>{cameraStage(true)}</div>
@@ -466,8 +587,8 @@ export default function PhotoBooth() {
             <p>This is the photo we’ll use. Check your framing before starting generation.</p>
             <button className="theme-change-button" type="button" onClick={() => setStep("choose")}><span style={{ background: theme.accent }} /> {theme.name} <em>Change theme</em></button>
             {cameraMessage && <p className="error-message" role="alert">{cameraMessage}</p>}
-            <div className="review-actions"><button className="secondary-button" type="button" onClick={retake}>Retake</button><button className="primary-button" type="button" onClick={() => void createPortrait()} disabled={submitting}><SparkIcon /> {submitting ? "Starting generation…" : "Generate my portrait"}</button></div>
-            <p className="help-note">This prototype returns a theme example; it does not send your photo to an AI service.</p>
+            <div className="review-actions"><button className="secondary-button" type="button" onClick={retake}>Retake</button><button className="primary-button" type="button" onClick={() => void createPortrait()} disabled={submitting || generationBlocked}><SparkIcon /> {submitting ? "Starting generation…" : generationBlocked ? "Organizer setup needed" : "Generate my portrait"}</button></div>
+            <p className="help-note">Your photo will be stored privately on this server and sent to Gemini with the selected theme prompt.</p>
           </div>
         </section>
       </main>
@@ -496,7 +617,7 @@ export default function PhotoBooth() {
   );
 
   return (
-    <main className={`booth-shell theme-${theme.id}`}>
+    <main className={`booth-shell theme-${theme.id}`} style={themeStyle}>
       {header("Step 5 of 5")}
       {job && (
         <section className={`processing-layout ${ready ? "is-ready" : ""}`}>
@@ -504,8 +625,8 @@ export default function PhotoBooth() {
             {ready ? (
               <div className="portrait-result">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={job.resultUrl!} alt={`Your ${theme.name} demo portrait`} />
-                <span>Demo result · {theme.name}</span>
+                <img src={job.resultUrl!} alt={`Your ${theme.name} AI portrait`} />
+                <span>AI portrait · {theme.name}</span>
               </div>
             ) : (
               <div className="generation-visual" aria-hidden="true"><div className="generation-orbit generation-orbit--one" /><div className="generation-orbit generation-orbit--two" /><span style={{ background: theme.accent }}><SparkIcon /></span></div>
@@ -514,17 +635,20 @@ export default function PhotoBooth() {
           <div className="processing-content">
             <div className="processing-copy" aria-live="polite">
               <p className="status-label"><i data-status={job.status} /> {job.status}</p>
-              <h1 ref={titleRef} tabIndex={-1}>{statusCopy[job.status].title}</h1>
+              <h1 ref={titleRef} tabIndex={-1}>{job.errorCode === "billing_required" ? "This booth needs an organizer." : statusCopy[job.status].title}</h1>
               <p>{statusCopy[job.status].detail}</p>
-              {!ready && <span className="no-countdown">No guessed countdown — this status comes from the demo job.</span>}
+              {job.error && <p className="error-message" role="alert">{job.error}</p>}
+              {!ready && job.status !== "failed" && <span className="no-countdown">No guessed countdown — this status comes from the generation job.</span>}
               <div className="processing-actions">
-                <a className="primary-button" href={portraitUrl} target="_blank" rel="noreferrer" onClick={() => setHandoffConfirmed(true)}>Open portrait link <ArrowIcon /></a>
-                {!handoffConfirmed && !emailSaved && <button className="text-button" type="button" onClick={() => setHandoffConfirmed(true)}>I’ve opened the link</button>}
-                {(ready || handoffConfirmed || emailSaved) && <button className="secondary-button" type="button" onClick={resetBooth}>Next person</button>}
+                {job.status === "failed" ? (
+                  <>{job.retryable !== false && <button className="primary-button" type="button" onClick={() => void retryPortrait()}>Try again <ArrowIcon /></button>}<button className={job.retryable === false ? "primary-button" : "secondary-button"} type="button" onClick={() => void discardFailedPortrait()}>Next person</button></>
+                ) : (
+                  <><a className="primary-button" href={portraitUrl} target="_blank" rel="noreferrer" onClick={() => setHandoffConfirmed(true)}>Open portrait link <ArrowIcon /></a>{!handoffConfirmed && !emailSaved && <button className="text-button" type="button" onClick={() => setHandoffConfirmed(true)}>I’ve opened the link</button>}{(ready || handoffConfirmed || emailSaved) && <button className="secondary-button" type="button" onClick={resetBooth}>Next person</button>}</>
+                )}
               </div>
-              {!ready && (handoffConfirmed || emailSaved) && <p className="handoff-note"><CheckIcon /> Processing continues after the booth resets.</p>}
+              {!ready && job.status !== "failed" && (handoffConfirmed || emailSaved) && <p className="handoff-note"><CheckIcon /> Processing continues after the booth resets.</p>}
             </div>
-            {collectionPanel}
+            {job.status !== "failed" && collectionPanel}
           </div>
         </section>
       )}

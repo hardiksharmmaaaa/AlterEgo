@@ -6,14 +6,14 @@ import "@fontsource/ibm-plex-mono/latin-600.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "KU Alter Ego — Pick your universe",
-  description: "An AI portrait booth by Khalifa University AI Club.",
+  title: "KU Alter Ego — Your other self is here",
+  description: "A playful UAE-inspired AI portrait experience by Khalifa University AI Club.",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#08070c",
+  themeColor: "#07070c",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
