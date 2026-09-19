@@ -1,10 +1,19 @@
+import Image from "next/image";
+
 export function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`brand-mark ${compact ? "brand-mark--compact" : ""}`} aria-label="Khalifa University AI Club">
-      <svg className="brand-symbol" viewBox="0 0 46 46" aria-hidden="true">
-        <path d="M8 8h12v12H8zM26 8h12v12H26zM8 26h12v12H8z" />
-        <path d="m27 27 11 11M38 27 27 38" />
-      </svg>
+      <span className="brand-logo-frame" aria-hidden="true">
+        <Image
+          className="brand-logo-image"
+          src="/images/ku-ai-club-logo.png"
+          alt=""
+          width={712}
+          height={692}
+          sizes={compact ? "34px" : "52px"}
+        />
+        <i className="brand-logo-signal" />
+      </span>
       <span className="brand-type">
         <strong>KU Alter Ego</strong>
         {!compact && <small>Khalifa University · AI Club</small>}

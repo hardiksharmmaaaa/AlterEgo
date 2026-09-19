@@ -1,7 +1,8 @@
 "use client";
 
-import { ChangeEvent, PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { ArrowIcon, BrandMark, CameraIcon, CheckIcon, CopyIcon, SparkIcon } from "./brand-mark";
+import LandingExperience from "./landing-experience";
 import QRCodeImage from "./qr-code";
 import type { PortraitJobStatus, PublicPortraitJob } from "@/lib/portrait-job";
 import { getTheme, themes, type ThemeId } from "@/lib/themes";
@@ -61,7 +62,6 @@ export default function PhotoBooth() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
-  const playgroundRef = useRef<HTMLButtonElement>(null);
   const submissionKey = useRef(crypto.randomUUID());
 
   const theme = getTheme(themeId);
@@ -249,32 +249,6 @@ export default function PhotoBooth() {
     else setStep("consent");
   }
 
-  function movePlayground(event: ReactPointerEvent<HTMLButtonElement>) {
-    const node = playgroundRef.current;
-    if (!node) return;
-    const bounds = node.getBoundingClientRect();
-    const horizontal = (event.clientX - bounds.left) / bounds.width - 0.5;
-    const vertical = (event.clientY - bounds.top) / bounds.height - 0.5;
-    node.style.setProperty("--play-x", `${horizontal * 18}deg`);
-    node.style.setProperty("--play-y", `${vertical * -14}deg`);
-    node.style.setProperty("--shine-x", `${(horizontal + 0.5) * 100}%`);
-    node.style.setProperty("--shine-y", `${(vertical + 0.5) * 100}%`);
-  }
-
-  function resetPlayground() {
-    const node = playgroundRef.current;
-    if (!node) return;
-    node.style.setProperty("--play-x", "0deg");
-    node.style.setProperty("--play-y", "0deg");
-    node.style.setProperty("--shine-x", "50%");
-    node.style.setProperty("--shine-y", "45%");
-  }
-
-  function remixTheme() {
-    const currentIndex = themes.findIndex((item) => item.id === themeId);
-    setThemeId(themes[(currentIndex + 1) % themes.length].id);
-  }
-
   function retake() {
     stopCamera();
     setPortrait("");
@@ -399,85 +373,12 @@ export default function PhotoBooth() {
   if (step === "welcome") {
     return (
       <main className={`booth-shell landing-shell theme-${theme.id}`} style={themeStyle}>
-        <header className="landing-header">
-          <button className="brand-button" type="button" onClick={resetBooth} aria-label="Return to welcome"><BrandMark /></button>
-          <div className="landing-live"><i /> <span>Live experience</span><strong>KU AI Club</strong></div>
-        </header>
-
-        <section className="landing-hero">
-          <div className="landing-copy">
-            <p className="landing-intro">Born in the UAE. Powered by your face.</p>
-            <h1 ref={titleRef} tabIndex={-1}>Your other self is already here.</h1>
-            <p className="landing-deck">Move the world. Pick a local signal. Step through with one photo.</p>
-            <div className="landing-actions">
-              <button className="landing-cta" type="button" onClick={() => setStep("consent")}>
-                Become {theme.name} <ArrowIcon />
-              </button>
-              <span>The camera stays off until you say go.</span>
-            </div>
-            <div className="landing-selected" aria-live="polite">
-              <span style={{ background: theme.accent }} />
-              <div><strong>{theme.shortName}</strong><p>{theme.description}</p></div>
-            </div>
-          </div>
-
-          <button
-            className="world-playground"
-            type="button"
-            ref={playgroundRef}
-            onPointerMove={movePlayground}
-            onPointerLeave={resetPlayground}
-            onClick={remixTheme}
-            aria-label={`Play with ${theme.name}. Click to switch to the next world.`}
-          >
-            <span className="world-halo world-halo--outer" aria-hidden="true" />
-            <span className="world-halo world-halo--inner" aria-hidden="true" />
-            <span className="world-coordinate world-coordinate--one" aria-hidden="true">24.4° N</span>
-            <span className="world-coordinate world-coordinate--two" aria-hidden="true">54.4° E</span>
-            <span className="world-stack" aria-hidden="true">
-              <span className="world-slab world-slab--back" />
-              <span className="world-slab world-slab--middle" />
-              <span className="world-portrait">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img key={theme.id} src={theme.image} alt="" />
-                <span className="world-shine" />
-              </span>
-              <span className="world-chip"><i /> {theme.name}</span>
-            </span>
-            <span className="world-play-hint">Move me. Click to remix.</span>
-          </button>
-        </section>
-
-        <section className="theme-dock" aria-labelledby="theme-dock-title">
-          <div className="theme-dock-heading">
-            <strong id="theme-dock-title">Six local signals.</strong>
-            <span>Pick your frequency.</span>
-          </div>
-          <div className="theme-reel" role="radiogroup" aria-label="Choose an alter ego theme">
-            {themes.map((item) => {
-              const selected = item.id === themeId;
-              return (
-                <button
-                  className={`theme-reel-item ${selected ? "is-selected" : ""}`}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  key={item.id}
-                  onClick={() => setThemeId(item.id)}
-                  style={{ "--reel-accent": item.accent } as React.CSSProperties}
-                >
-                  <span className="theme-reel-thumb">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={item.image} alt="" />
-                  </span>
-                  <span><strong>{item.name}</strong><small>{item.shortName}</small></span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        <footer className="landing-footer"><span>KU Alter Ego</span><span>Made for play. Private by default.</span></footer>
+        <LandingExperience
+          themeId={themeId}
+          onThemeChange={setThemeId}
+          onStart={() => setStep("consent")}
+          titleRef={titleRef}
+        />
       </main>
     );
   }

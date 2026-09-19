@@ -6,14 +6,14 @@ import "@fontsource/ibm-plex-mono/latin-600.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "KU Alter Ego — Your other self is here",
-  description: "A playful UAE-inspired AI portrait experience by Khalifa University AI Club.",
+  title: "KU Alter Ego — Meet the you you haven’t met yet",
+  description: "Choose one of six UAE-inspired worlds, make one photo, and leave with a private AI alter ego.",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#07070c",
+  themeColor: "#090611",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
